@@ -2,6 +2,8 @@
 
 Jump is a single-file, Doodle Jump-inspired arcade game for iPhone, iPad, and desktop browsers. Guide a hero upward across platforms, collect power-ups, avoid hazards, and build a high score.
 
+▶ **[Play the live game](https://arecibo-sys.github.io/jump/)** — steer with touch, keyboard, mouse, or optional device tilt.
+
 ## Play
 
 Open `index.html` in a modern browser. No build step, server, account, or external dependency is required.
