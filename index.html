@@ -791,14 +791,14 @@ function update() {
   // Generate ahead (above the camera as the player climbs)
   if (spawnY > camY - 200) generate(camY);
 
-  // Cull below
+  // Cull below (world y decreases upward, so "below" means y past the camera's bottom edge)
   const cullY = camY + viewH + 300;
-  platforms = platforms.filter(p => !p.dead && p.y > camY - 200);
-  coins = coins.filter(c => !c.taken && c.y > camY - 200);
-  stars = stars.filter(s => !s.taken && s.y > camY - 200);
-  powerups = powerups.filter(p => !p.taken && p.y > camY - 200);
-  enemies = enemies.filter(e => e.alive && e.y > camY - 200);
-  hazards = hazards.filter(h => h.y > camY - 200);
+  platforms = platforms.filter(p => !p.dead && p.y < cullY);
+  coins = coins.filter(c => !c.taken && c.y < cullY);
+  stars = stars.filter(s => !s.taken && s.y < cullY);
+  powerups = powerups.filter(p => !p.taken && p.y < cullY);
+  enemies = enemies.filter(e => e.alive && e.y < cullY);
+  hazards = hazards.filter(h => h.y < cullY);
 
   // Particles
   state.particles = state.particles.filter(p => (p.life -= STEP) > 0);
@@ -1202,6 +1202,11 @@ window.__jump = {
   start(){ startGame(); },
   step(){ update(); },
   setHero(i){ state.hero=i; },
+  IN,
+  get particles(){ return state.particles.map(p=>({x:p.x,y:p.y,life:p.life})); },
+  get platformList(){ return platforms.map(p=>({x:p.x,y:p.y,w:p.w})); },
+  render(){ render(); },
+  get viewWH(){ return [viewW, viewH]; },
 };
 
 })();
