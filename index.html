@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>JUMP — Vertical Arcade</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0b0e1a; touch-action:none; overscroll-behavior:none; }
+  body { font-family:'Segoe UI', system-ui, -apple-system, sans-serif; color:#fff; }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  #game { display:block; background:#0b0e1a; touch-action:none; }
+  /* HUD overlay */
+  #hud { position:fixed; top:0; left:0; right:0; padding:10px 14px; display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none; z-index:5; font-weight:700; text-shadow:0 2px 6px rgba(0,0,0,.6); }
+  #hud .score { font-size:clamp(20px,4vw,34px); letter-spacing:1px; }
+  #hud .alt { font-size:clamp(12px,2.4vw,16px); opacity:.85; }
+  #hud .right { text-align:right; }
+  #hud .best { font-size:clamp(12px,2.4vw,16px); opacity:.8; }
+  #hud .world { font-size:clamp(11px,2.2vw,14px); text-transform:uppercase; letter-spacing:2px; opacity:.9; }
+  #hud .pills { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  #hud .pill { background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.25); border-radius:20px; padding:3px 10px; font-size:clamp(10px,2vw,13px); font-weight:600; }
+  /* Menu overlay */
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(8,10,22,.82); backdrop-filter:blur(6px); z-index:10; text-align:center; padding:20px; }
+  .overlay.hidden { display:none; }
+  .overlay h1 { font-size:clamp(44px,12vw,96px); letter-spacing:6px; font-weight:900; background:linear-gradient(135deg,#ffd166,#ff6b6b,#4ecdc4); -webkit-background-clip:text; background-clip:text; color:transparent; text-shadow:0 0 30px rgba(255,107,107,.3); }
+  .overlay .tag { font-size:clamp(13px,2.6vw,18px); opacity:.85; margin:6px 0 18px; letter-spacing:1px; }
+  .btn { pointer-events:auto; cursor:pointer; border:none; border-radius:14px; padding:14px 34px; font-size:clamp(16px,3vw,22px); font-weight:800; color:#0b0e1a; background:linear-gradient(135deg,#ffd166,#ff9f43); box-shadow:0 6px 20px rgba(255,159,67,.4); transition:transform .12s, box-shadow .12s; margin:6px; }
+  .btn:active { transform:scale(.96); }
+  .btn.ghost { background:rgba(255,255,255,.12); color:#fff; box-shadow:none; border:1px solid rgba(255,255,255,.3); }
+  .btn.small { padding:9px 20px; font-size:clamp(13px,2.4vw,16px); }
+  /* Hero select */
+  .hero-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin:14px 0; }
+  .hero-card { pointer-events:auto; cursor:pointer; width:clamp(64px,16vw,92px); padding:10px 6px 8px; border-radius:14px; background:rgba(255,255,255,.08); border:2px solid transparent; transition:border-color .15s, background .15s; }
+  .hero-card.sel { border-color:#ffd166; background:rgba(255,209,102,.15); }
+  .hero-card canvas { width:100%; height:auto; }
+  .hero-card .nm { font-size:clamp(9px,1.8vw,12px); font-weight:700; margin-top:4px; }
+  .hero-card .ds { font-size:clamp(8px,1.5vw,10px); opacity:.7; }
+  .controls { font-size:clamp(11px,2.2vw,14px); opacity:.75; margin-top:10px; line-height:1.6; }
+  .controls b { color:#ffd166; }
+  .mute { position:fixed; top:10px; right:14px; z-index:15; pointer-events:auto; cursor:pointer; background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.3); border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .toast { position:fixed; top:22%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.7); border:1px solid rgba(255,255,255,.3); border-radius:12px; padding:10px 20px; font-weight:700; font-size:clamp(14px,3vw,20px); z-index:8; opacity:0; transition:opacity .3s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .combo { position:fixed; top:30%; left:50%; transform:translateX(-50%); font-size:clamp(22px,5vw,40px); font-weight:900; color:#ffd166; text-shadow:0 0 20px rgba(255,209,102,.6); z-index:8; opacity:0; pointer-events:none; }
+  .combo.show { animation:pop .5s ease; }
+  @keyframes pop { 0%{opacity:0; transform:translateX(-50%) scale(.5);} 30%{opacity:1; transform:translateX(-50%) scale(1.15);} 100%{opacity:0; transform:translateX(-50%) scale(1);} }
+  .hint { position:fixed; bottom:14px; left:0; right:0; text-align:center; font-size:clamp(11px,2.2vw,14px); opacity:.6; z-index:6; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game"></canvas></div>
+
+<div id="hud">
+  <div class="left">
+    <div class="score" id="score">0</div>
+    <div class="alt" id="comboLabel"></div>
+  </div>
+  <div class="right">
+    <div class="best" id="best">BEST 0</div>
+    <div class="world" id="world">Fantasy</div>
+    <div class="pills" id="pills"></div>
+  </div>
+</div>
+
+<div class="mute" id="muteBtn">🔊</div>
+
+<div class="overlay" id="menu">
+  <h1>JUMP</h1>
+  <div class="tag">Climb. Steer. Collect. Rise again.</div>
+  <div class="hero-row" id="heroRow"></div>
+  <div>
+    <button class="btn" id="startBtn">▶ PLAY</button>
+  </div>
+  <div class="controls">
+    <b>Desktop:</b> ← → / A D to steer &nbsp;·&nbsp; <b>Mobile:</b> drag left/right to steer<br>
+    <b>Tip:</b> land on platforms, chain coins, grab power-ups. Don't fall off the bottom!
+  </div>
+</div>
+
+<div class="overlay hidden" id="over">
+  <h1 style="font-size:clamp(34px,9vw,70px)">GAME OVER</h1>
+  <div class="tag" id="overScore">Score: 0</div>
+  <div class="tag" id="overBest" style="margin-top:-8px">Best: 0</div>
+  <div>
+    <button class="btn" id="retryBtn">↻ RETRY</button>
+    <button class="btn ghost" id="menuBtn">MENU</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="combo" id="combo"></div>
+<div class="hint" id="hint"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ============================================================
+   JUMP — Advanced Vertical Arcade Platformer
+   Single-file HTML. Fixed 60fps timestep. Canvas + WebAudio.
+   Team: Nexus engineering (Hermes orchestrator + rapid + pro + glm)
+   ============================================================ */
+
+// ---------- Canvas & scaling ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const BASE_W = 480, BASE_H = 720;
+let SCALE = 1, RENDER_SCALE = 1;
+let viewW = BASE_W, viewH = BASE_H;
+
+function resize() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const s = Math.min(vw / BASE_W, vh / BASE_H);
+  SCALE = Math.max(0.4, Math.min(1.6, s));
+  RENDER_SCALE = Math.floor(SCALE * 100) / 100;
+  viewW = Math.floor(BASE_W * RENDER_SCALE);
+  viewH = Math.floor(BASE_H * RENDER_SCALE);
+  canvas.width = viewW * (window.devicePixelRatio || 1);
+  canvas.height = viewH * (window.devicePixelRatio || 1);
+  canvas.style.width = viewW + 'px';
+  canvas.style.height = viewH + 'px';
+  ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+  ctx.scale(RENDER_SCALE, RENDER_SCALE);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- Fixed timestep ----------
+const STEP = 1/60;
+let acc = 0, last = performance.now();
+let frame = 0;
+
+// ---------- Input ----------
+const IN = { left:false, right:false, steer:0, touchX:null, touchActive:false };
+let accelActive = false, accelCal = 0;
+
+document.addEventListener('keydown', e => {
+  if (e.key==='ArrowLeft'||e.key==='a'||e.key==='A') IN.left=true;
+  if (e.key==='ArrowRight'||e.key==='d'||e.key==='D') IN.right=true;
+});
+document.addEventListener('keyup', e => {
+  if (e.key==='ArrowLeft'||e.key==='a'||e.key==='A') IN.left=false;
+  if (e.key==='ArrowRight'||e.key==='d'||e.key==='D') IN.right=false;
+});
+
+// Touch-drag steering (default mobile control)
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  IN.touchX = t.clientX; IN.touchActive = true;
+  if (state.mode==='menu') startGame();
+  if (state.mode==='over') startGame();
+}, {passive:false});
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  IN.touchX = t.clientX;
+}, {passive:false});
+canvas.addEventListener('touchend', e => { e.preventDefault(); IN.touchActive=false; IN.touchX=null; }, {passive:false});
+canvas.addEventListener('touchcancel', e => { IN.touchActive=false; IN.touchX=null; }, {passive:false});
+
+// Mouse drag (desktop fallback)
+let mouseDown=false;
+canvas.addEventListener('mousedown', e => { mouseDown=true; IN.touchX=e.clientX; IN.touchActive=true; if(state.mode==='menu'||state.mode==='over') startGame(); });
+window.addEventListener('mousemove', e => { if(mouseDown){ IN.touchX=e.clientX; } });
+window.addEventListener('mouseup', () => { mouseDown=false; IN.touchActive=false; IN.touchX=null; });
+
+// Accelerometer (optional, calibrated)
+function enableAccel() {
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(p => {
+      if (p==='granted') { window.addEventListener('deviceorientation', onOrient); accelActive=true; }
+    }).catch(()=>{});
+  } else if (typeof DeviceOrientationEvent !== 'undefined') {
+    window.addEventListener('deviceorientation', onOrient);
+    accelActive = true;
+  }
+}
+function onOrient(e) {
+  if (e.gamma==null) return;
+  if (accelCal===null) accelCal = e.gamma;
+  IN.steer = Math.max(-1, Math.min(1, (e.gamma - accelCal) / 25));
+}
+
+// ---------- State ----------
+const state = {
+  mode:'menu',          // menu | play | over
+  t:0,                  // fixed-timestep time
+  score:0, best:0,
+  hero:0,
+  world:0,
+  combo:0, comboT:0,
+  fallT:0,              // time in falling window
+  powerups:{},          // active timed buffs
+  overrides:null,       // movement-override powerup
+  muted:false,
+  shake:0,
+  particles:[],
+  toasts:[],
+  coins:0,
+};
+
+// ---------- Heroes (interchangeable retro roster) ----------
+// Each hero: name, desc, palette, stat modifiers (jump, steer, size)
+const HEROES = [
+  { name:'Blip',   desc:'The red round one',  c:['#ff6b6b','#c0392b','#ffe0e0'], jump:1.0, steer:1.0, size:1.0 },
+  { name:'Pixel',  desc:'Retro space invader', c:['#4ecdc4','#1a8f8a','#b2f2ee'], jump:1.05, steer:1.1, size:0.9 },
+  { name:'Mario',  desc:'Classic plumber',     c:['#ffd166','#e63946','#3a86ff'], jump:1.0, steer:0.95, size:1.0 },
+  { name:'Ghost',  desc:'Friendly spook',      c:['#c8b6ff','#8e7cc3','#f1e8ff'], jump:0.95, steer:1.15, size:0.95 },
+  { name:'Serpent',desc:'Neon snake',          c:['#7bf1a8','#2ec4b6','#d0ffe0'], jump:1.1, steer:1.0, size:0.9 },
+  { name:'Knight', desc:'Pixel knight',        c:['#a8b2c1','#5c6b7a','#e2e8f0'], jump:0.9, steer:0.9, size:1.1 },
+  { name:'Nova',   desc:'Cosmic comet',        c:['#ff9f43','#ff6b6b','#ffe0b2'], jump:1.15, steer:1.05, size:0.85 },
+  { name:'Frog',   desc:'Bouncy amphibian',    c:['#6bff6b','#2d8a2d','#d0ffd0'], jump:1.2, steer:0.85, size:1.0 },
+];
+
+// ---------- Player physics ----------
+const GRAV = 0.5;                  // gravity (per step^2)
+const BASE_UP = 11.0;              // bounce ascent velocity (~121 unit jump, ~2x gap 50-62)
+const MAX_FALL = 12;               // max fall speed
+const STEER_ACC = 0.4;             // horizontal accel
+const MAX_VX = 3.5;                // max horizontal speed (~115 unit reach, covers maxOff 30)
+const PLAYER_R = 13;               // base radius
+
+const player = { x:0, y:0, vx:0, vy:0, r:PLAYER_R, alive:true, squash:0 };
+
+// ---------- World / camera ----------
+let camY = 0;                      // camera top in world coords
+let worldH = 0;                    // highest point reached
+let spawnY = 0;                    // next spawn altitude
+
+// ---------- Entities ----------
+let platforms = [], coins = [], stars = [], powerups = [], enemies = [], hazards = [];
+
+// ---------- World themes ----------
+const WORLDS = [
+  { name:'Fantasy', sky:['#2b1055','#7597de'], far:['#4a2f8a','#6a4fb0'], mid:['#8a5fc0','#b08ad0'], near:['#c9a0e0','#e0c8f0'], accent:'#ffd166' },
+  { name:'Forest',  sky:['#0f3d2e','#2d6a4f'], far:['#1b5e3a','#2f8a52'], mid:['#3a9d5c','#5cbf7a'], near:['#7ad0a0','#a8e6c0'], accent:'#7bf1a8' },
+  { name:'Mines',   sky:['#1a1a2e','#3d3d5c'], far:['#2a2a44','#4a4a6a'], mid:['#5a5a7a','#7a7a9a'], near:['#9a9aba','#c0c0d8'], accent:'#ffd166' },
+  { name:'Clouds',  sky:['#0b3d91','#4ecdc4'], far:['#1a6fb0','#4ecdc4'], mid:['#7ad0e0','#b0e8f0'], near:['#d0f0f8','#f0faff'], accent:'#ff9f43' },
+];
+
+// ---------- Audio (procedural WebAudio, non-intrusive) ----------
+let audio=null, musicGain=null, sfxGain=null, musicTimer=null, musicStep=0, musicOn=false;
+const BPM = 112;
+const STEP_DUR = 60 / BPM / 2;    // 8th notes
+
+function initAudio() {
+  if (audio) { if (audio.state==='suspended') audio.resume(); return; }
+  try {
+    audio = new (window.AudioContext||window.webkitAudioContext)();
+    musicGain = audio.createGain(); musicGain.gain.value = 0.16; musicGain.connect(audio.destination);
+    sfxGain = audio.createGain(); sfxGain.gain.value = 0.22; sfxGain.connect(audio.destination);
+  } catch(e) { audio=null; }
+}
+
+function tone(freq, dur, type, vol, when, dest, slideTo) {
+  if (!audio) return;
+  const t = audio.currentTime + (when||0);
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = type||'sine'; o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t+dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol||0.1, t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(dest||sfxGain);
+  o.start(t); o.stop(t+dur+0.02);
+}
+function noise(dur, vol, when, dest, freq) {
+  if (!audio) return;
+  const t = audio.currentTime + (when||0);
+  const len = Math.floor(audio.sampleRate * dur);
+  const buf = audio.createBuffer(1, len, audio.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i=0;i<len;i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+  const src = audio.createBufferSource(); src.buffer = buf;
+  const f = audio.createBiquadFilter(); f.type='lowpass'; f.frequency.value = freq||800;
+  const g = audio.createGain(); g.gain.setValueAtTime(vol||0.1, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  src.connect(f); f.connect(g); g.connect(dest||sfxGain);
+  src.start(t); src.stop(t+dur+0.02);
+}
+
+// SFX
+function sfxJump(){ tone(220,0.12,'triangle',0.12,0,null,440); }
+function sfxCoin(){ tone(880,0.08,'sine',0.1,0); tone(1320,0.1,'sine',0.08,0.05); }
+function sfxStar(){ tone(660,0.1,'sine',0.12,0); tone(990,0.1,'sine',0.1,0.06); tone(1320,0.12,'sine',0.1,0.12); }
+function sfxPower(){ tone(440,0.1,'sawtooth',0.1,0,null,880); tone(880,0.12,'sawtooth',0.08,0.08,null,1320); }
+function sfxHurt(){ noise(0.2,0.15,0,sfxGain,400); tone(160,0.2,'square',0.08,0,null,80); }
+function sfxFall(){ tone(300,0.4,'sawtooth',0.1,0,null,60); }
+function sfxShield(){ tone(520,0.15,'triangle',0.1,0,null,780); }
+function sfxBoost(){ tone(200,0.3,'sawtooth',0.12,0,null,900); }
+
+// Music — modern electronic, layered, non-intrusive. Constant BPM.
+const CHORDS = [ [0,4,7], [0,3,7], [0,5,7], [0,4,7], [0,3,7], [0,5,7], [0,4,7], [0,3,7] ];
+const BASS = [0,0,12,0,0,0,12,0, 0,0,3,0,5,0,3,0];
+const ARP = [0,7,12,7, 0,7,12,7, 0,7,12,7, 0,7,12,7];
+function midiToFreq(m){ return 440 * Math.pow(2, (m-69)/12); }
+
+function startMusic() {
+  if (!audio || state.muted) return;
+  if (musicOn) return;
+  musicOn = true; musicStep = 0;
+  const root = 45; // A1
+  musicTimer = setInterval(() => {
+    if (!musicOn || !audio) return;
+    const s = musicStep % 16;
+    const bar = Math.floor(musicStep / 16) % 8;
+    // Kick on every beat
+    if (s % 4 === 0) tone(120, 0.12, 'sine', 0.5, 0, musicGain, 50);
+    // Bass 8th pattern
+    const b = BASS[s];
+    if (b !== 0) tone(midiToFreq(root + b), 0.18, 'triangle', 0.14, 0, musicGain);
+    // Soft hats on off-beats
+    if (s % 2 === 1) noise(0.03, 0.05, 0, musicGain, 6000);
+    // Pad chord at bar start
+    if (s === 0) {
+      const ch = CHORDS[bar];
+      ch.forEach(iv => tone(midiToFreq(root + 12 + iv), STEP_DUR*8, 'sine', 0.05, 0, musicGain));
+    }
+    // Gentle arp on bars 2,4,6,8
+    if (bar % 2 === 1 && s % 2 === 0) {
+      const n = ARP[(s/2) % 8];
+      tone(midiToFreq(root + 24 + n), 0.12, 'sine', 0.05, 0, musicGain);
+    }
+    musicStep++;
+  }, STEP_DUR * 1000);
+}
+function stopMusic() {
+  musicOn = false;
+  if (musicTimer) { clearInterval(musicTimer); musicTimer=null; }
+}
+
+// ---------- Powerup definitions ----------
+const POWERUPS = {
+  magnet:   { name:'Magnet',   color:'#ff6b6b', dur:6,  type:'buff' },
+  balloon:  { name:'Balloon',  color:'#ff9f43', dur:5,  type:'override', mode:'balloon' },
+  boots:    { name:'Jump Boots',color:'#4ecdc4',dur:7, type:'buff' },
+  shield:   { name:'Shield',   color:'#7bf1a8', dur:6,  type:'buff' },
+  antigrav: { name:'Anti-Grav',color:'#c8b6ff', dur:5,  type:'override', mode:'antigrav' },
+  fireball: { name:'Fireball', color:'#ff6b6b', dur:4,  type:'override', mode:'fireball' },
+  supernova:{ name:'Supernova',color:'#ffd166', dur:3,  type:'override', mode:'supernova' },
+  jetpack:  { name:'Jetpack',  color:'#4ecdc4', dur:5,  type:'override', mode:'jetpack' },
+  x2:       { name:'2x Score', color:'#ffd166', dur:8,  type:'buff' },
+};
+
+// ---------- Spawning ----------
+function worldOf(y) {
+  // 4 worlds, each ~2000 units of altitude
+  return Math.min(3, Math.floor(y / 2000));
+}
+function worldAccent() { return WORLDS[state.world].accent; }
+
+function spawnPlatform(y, prevX) {
+  const w = 90 + Math.random()*40;   // 90-130 wide landing target
+  // Place within reach of the previous platform (limited horizontal offset)
+  let x;
+  if (prevX != null) {
+    const maxOff = 30; // max horizontal offset from previous platform center (small, easy to correct)
+    x = Math.max(20, Math.min(BASE_W - w - 20, prevX + (Math.random()*2-1)*maxOff));
+  } else {
+    x = 30 + Math.random() * (BASE_W - w - 60);
+  }
+  const r = Math.random();
+  let type = 'static';
+  if (r < 0.12) type = 'break';
+  else if (r < 0.2) type = 'bounce';
+  else if (r < 0.26) type = 'conceal';
+  platforms.push({ x, y, w, h:14, type, hits: type==='break'?1:99, hasCoin: type==='conceal' && Math.random()<0.5 });
+  return x + w/2; // return center for chaining
+}
+
+function spawnCoin(y, x) {
+  coins.push({ x: x!=null?x:(30+Math.random()*(BASE_W-60)), y, r:9, taken:false });
+}
+function spawnCoinTrail(y, x, n, dir) {
+  for (let i=0;i<n;i++) spawnCoin(y - i*34, x + dir*i*22);
+}
+function spawnStar(y, x) {
+  stars.push({ x: x!=null?x:(30+Math.random()*(BASE_W-60)), y, r:12, taken:false });
+}
+function spawnPowerup(y, x) {
+  const keys = Object.keys(POWERUPS);
+  const k = keys[Math.floor(Math.random()*keys.length)];
+  powerups.push({ x: x!=null?x:(30+Math.random()*(BASE_W-60)), y, r:13, kind:k, taken:false });
+}
+function spawnEnemy(y, x) {
+  const types = ['monster','anvil','ballchain','lightning','potion'];
+  const t = types[Math.floor(Math.random()*types.length)];
+  enemies.push({ x: x!=null?x:(30+Math.random()*(BASE_W-60)), y, r:14, type:t, vx:(Math.random()-0.5)*1.2, alive:true });
+}
+function spawnHazard(y, x) {
+  hazards.push({ x: x!=null?x:(30+Math.random()*(BASE_W-60)), y, r:12, type:'spike' });
+}
+
+function generate(y) {
+  // Platforms — chained so each is within reach of the previous (Doodle Jump style).
+  // The player climbs UPWARD (decreasing y), so platforms are generated ABOVE
+  // the current camera top (smaller y), ahead of the climb.
+  const platGap = 58 + Math.random()*12;   // gap 58-70 (slightly wider = fewer platforms on screen)
+  let prevCenter = null;
+  // Generate from the current top of the world upward (decreasing y)
+  for (let yy = spawnY; yy > y - 200; yy -= platGap) {
+    prevCenter = spawnPlatform(yy, prevCenter);
+    // Coins trail on some platforms — fewer, shorter trails
+    if (Math.random() < 0.4) spawnCoinTrail(yy - 20, 30+Math.random()*(BASE_W-60), 2+Math.floor(Math.random()*2), Math.random()<0.5?1:-1);
+    // Stars occasionally
+    if (Math.random() < 0.07) spawnStar(yy - 40);
+    // Powerups occasionally
+    if (Math.random() < 0.05) spawnPowerup(yy - 50);
+    // Enemies more in later worlds
+    const w = worldOf(yy);
+    if (Math.random() < 0.03 + w*0.02) spawnEnemy(yy - 30);
+    if (Math.random() < 0.015 + w*0.015) spawnHazard(yy - 20);
+  }
+  spawnY = y - 200;   // next generation starts above the current top
+}
+
+// ---------- Falling window ----------
+// The defining mechanic: when the player misses and starts falling,
+// there's a brief window to rescue below before the run ends.
+function updateFalling() {
+  if (player.vy > 0) {
+    // Falling — track the window
+    state.fallT += STEP;
+    // Rescue density: spawn a few coins/platforms below to give a chance
+    if (state.fallT > 0.3 && Math.random() < 0.01) {
+      spawnCoin(player.y + 120, player.x + (Math.random()-0.5)*120);
+    }
+    // Last-second rescue platform if falling deep (the defining recovery)
+    if (state.fallT > 0.5 && Math.random() < 0.01) {
+      spawnPlatform(player.y + 90);
+    }
+  } else {
+    state.fallT = 0;
+  }
+}
+
+// ---------- Collision (CCD / swept) ----------
+// Prevent tunneling at high velocity: check swept segment from prev to new pos.
+function circleRectSwept(px, py, pr, prevY, rect) {
+  // Vertical sweep: check if the circle's path crosses the rect's vertical span
+  const top = rect.y, bot = rect.y + rect.h;
+  const left = rect.x, right = rect.x + rect.w;
+  // Circle center must be within horizontal range (with radius)
+  if (px + pr < left || px - pr > right) return false;
+  // Check if path crosses the rect's vertical band
+  const y0 = Math.min(prevY, py), y1 = Math.max(prevY, py);
+  if (y1 + pr < top || y0 - pr > bot) return false;
+  return true;
+}
+
+function checkPlatforms() {
+  for (let i=0;i<platforms.length;i++) {
+    const p = platforms[i];
+    if (p.y > player.y + 60) continue; // only platforms at/below the player's feet
+    // Land when the player's bottom edge crosses the platform's top band,
+    // whether rising (ascent) or falling (descent). This lets the player
+    // catch the next platform as it rises through it from below — the key
+    // to climbing instead of bouncing in place.
+    const feet = player.y + player.r;
+    const head = player.y - player.r;
+    const onTop = feet >= p.y && head <= p.y + p.h;
+    if (onTop && circleRectSwept(player.x, player.y, player.r, player.y - player.vy, p)) {
+      // Land
+      player.y = p.y - player.r;
+      const boost = p.type==='bounce' ? 1.5 : 1.0;
+      player.vy = -(BASE_UP * hero().jump * boost);
+      player.squash = 1;
+      sfxJump();
+      if (p.type==='break') { p.hits--; if (p.hits<=0) { p.dead=true; burst(p.x+p.w/2, p.y, '#a8b2c1', 5); } }
+      if (p.hasCoin) { p.hasCoin=false; addCoin(p.x+p.w/2, p.y-10); }
+      // Combo on consecutive bounces
+      state.combo = Math.min(10, state.combo+1);
+      state.comboT = 2;
+      return;
+    }
+  }
+}
+
+function checkCoins() {
+  for (let i=0;i<coins.length;i++) {
+    const c = coins[i];
+    if (c.taken) continue;
+    const dx = player.x - c.x, dy = player.y - c.y;
+    const rr = player.r + c.r;
+    if (dx*dx + dy*dy < rr*rr) {
+      c.taken = true;
+      addCoin(c.x, c.y);
+    }
+  }
+}
+function addCoin(x,y) {
+  state.coins++;
+  const mult = state.powerups.x2 ? 2 : 1;
+  const pts = 10 * mult;
+  state.score += pts;
+  burst(x,y,'#ffd166',4);
+  sfxCoin();
+  showToast('+'+pts, '#ffd166');
+}
+
+function checkStars() {
+  for (let i=0;i<stars.length;i++) {
+    const s = stars[i];
+    if (s.taken) continue;
+    const dx = player.x - s.x, dy = player.y - s.y;
+    const rr = player.r + s.r;
+    if (dx*dx + dy*dy < rr*rr) {
+      s.taken = true;
+      const mult = state.powerups.x2 ? 2 : 1;
+      const pts = 50 * mult;
+      state.score += pts;
+      // Star gives a boost
+      player.vy = -(BASE_UP * hero().jump * 1.3);
+      burst(s.x,s.y,'#ff9f43',7);
+      sfxStar();
+      showToast('+'+pts+' ★', '#ff9f43');
+    }
+  }
+}
+
+function checkPowerups() {
+  for (let i=0;i<powerups.length;i++) {
+    const p = powerups[i];
+    if (p.taken) continue;
+    const dx = player.x - p.x, dy = player.y - p.y;
+    const rr = player.r + p.r;
+    if (dx*dx + dy*dy < rr*rr) {
+      p.taken = true;
+      applyPowerup(p.kind);
+    }
+  }
+}
+
+function applyPowerup(kind) {
+  const def = POWERUPS[kind];
+  if (def.type === 'override') {
+    // One movement-override at a time — new replaces old
+    state.overrides = { kind, t: def.dur };
+    sfxBoost();
+  } else {
+    state.powerups[kind] = def.dur;
+    sfxPower();
+  }
+  showToast(def.name+'!', def.color);
+  burst(player.x, player.y, def.color, 8);
+}
+
+function checkEnemies() {
+  for (let i=0;i<enemies.length;i++) {
+    const e = enemies[i];
+    if (!e.alive) continue;
+    const dx = player.x - e.x, dy = player.y - e.y;
+    const rr = player.r + e.r;
+    if (dx*dx + dy*dy < rr*rr) {
+      if (state.powerups.shield) {
+        // Shield bounces enemy off
+        e.alive = false;
+        state.powerups.shield = 0;
+        burst(e.x,e.y,'#7bf1a8',7);
+        sfxShield();
+        player.vy = -(BASE_UP * hero().jump * 1.2);
+      } else {
+        // Hit — lose combo, small penalty, but not instant death
+        state.combo = 0;
+        state.score = Math.max(0, state.score - 20);
+        burst(player.x, player.y, '#ff6b6b', 7);
+        sfxHurt();
+        player.vy = -(BASE_UP * hero().jump * 0.6); // small bounce
+        e.alive = false;
+        showToast('-20', '#ff6b6b');
+      }
+    }
+  }
+}
+
+function checkHazards() {
+  for (let i=0;i<hazards.length;i++) {
+    const h = hazards[i];
+    const dx = player.x - h.x, dy = player.y - h.y;
+    const rr = player.r + h.r;
+    if (dx*dx + dy*dy < rr*rr) {
+      if (state.powerups.shield) {
+        state.powerups.shield = 0;
+        burst(h.x,h.y,'#7bf1a8',6);
+        sfxShield();
+      } else {
+        state.combo = 0;
+        state.score = Math.max(0, state.score - 15);
+        burst(player.x, player.y, '#ff6b6b', 6);
+        sfxHurt();
+        showToast('-15', '#ff6b6b');
+      }
+    }
+  }
+}
+
+// ---------- Particles ----------
+function burst(x,y,color,n) {
+  for (let i=0;i<n;i++) {
+    const a = Math.random()*Math.PI*2, sp = 0.8+Math.random()*2.2;
+    state.particles.push({ x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-0.8, life:0.4+Math.random()*0.3, max:0.7, color, r:1.5+Math.random()*2 });
+  }
+}
+
+// ---------- Toast / combo ----------
+let toastEl = document.getElementById('toast');
+let comboEl = document.getElementById('combo');
+let toastTimer=null;
+function showToast(msg, color) {
+  toastEl.textContent = msg;
+  toastEl.style.color = color||'#fff';
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toastEl.classList.remove('show'), 900);
+}
+function showCombo(n) {
+  if (n < 2) return;
+  comboEl.textContent = 'COMBO x'+n;
+  comboEl.classList.remove('show');
+  void comboEl.offsetWidth;
+  comboEl.classList.add('show');
+}
+
+// ---------- Hero helpers ----------
+function hero() { return HEROES[state.hero]; }
+
+// ---------- Game flow ----------
+function resetGame() {
+  state.mode='play';
+  state.t=0; state.score=0; state.combo=0; state.comboT=0; state.fallT=0;
+  state.powerups={}; state.overrides=null; state.coins=0;
+  platforms=[]; coins=[]; stars=[]; powerups=[]; enemies=[]; hazards=[]; state.particles=[];
+  camY=0; worldH=0; spawnY=0;
+  // Spawn the player near the bottom of the VISIBLE viewport (not a fixed
+  // world y), so the player is always on-screen regardless of window size.
+  // Otherwise on a small window the player spawns below the death line and
+  // dies instantly (straight to restart).
+  const spawnY0 = viewH * 0.7;
+  player.x = BASE_W/2; player.y = spawnY0; player.vx=0; player.vy=0; player.alive=true; player.squash=0;
+  // Initial platforms — a few below the player to start, then generate upward
+  for (let i=0;i<4;i++) spawnPlatform(spawnY0 + i*60);
+  spawnY = spawnY0 - 60;
+  generate(spawnY0 - 60);
+  state.world = 0;
+  startMusic();
+  updateHUD();
+}
+
+function startGame() {
+  initAudio();
+  if (state.mode==='menu'||state.mode==='over') {
+    document.getElementById('menu').classList.add('hidden');
+    document.getElementById('over').classList.add('hidden');
+    resetGame();
+  }
+}
+
+function gameOver() {
+  state.mode='over';
+  stopMusic();
+  sfxFall();
+  if (state.score > state.best) {
+    state.best = state.score;
+    try { localStorage.setItem('jump_best', String(state.best)); } catch(e){}
+  }
+  try { localStorage.setItem('jump_hero', String(state.hero)); } catch(e){}
+  document.getElementById('overScore').textContent = 'Score: '+state.score;
+  document.getElementById('overBest').textContent = 'Best: '+state.best;
+  document.getElementById('over').classList.remove('hidden');
+}
+
+// ---------- Update ----------
+function update() {
+  state.t += STEP;
+  frame++;
+
+  if (state.mode !== 'play') return;
+
+  // Steering input
+  let steer = 0;
+  if (IN.left) steer -= 1;
+  if (IN.right) steer += 1;
+  if (IN.touchActive && IN.touchX != null) {
+    // Touch-drag: steer toward touch position relative to center
+    const cx = window.innerWidth/2;
+    steer = Math.max(-1, Math.min(1, (IN.touchX - cx) / (window.innerWidth*0.3)));
+  }
+  if (accelActive) steer = IN.steer;
+  steer *= hero().steer;
+  // NOTE: No auto-assist steering. The player controls the climb entirely.
+  // The safety net is the falling-window rescue mechanic (spawns rescue
+  // platforms/coins when the player falls deep), not automatic steering.
+  // This keeps the game from "playing itself."
+
+  // Horizontal movement
+  player.vx += steer * STEER_ACC;
+  player.vx *= 0.9; // friction
+  player.vx = Math.max(-MAX_VX, Math.min(MAX_VX, player.vx));
+  player.x += player.vx;
+
+  // Wall-bounce (more forgiving than wrap-around)
+  if (player.x < player.r) { player.x = player.r; player.vx = Math.abs(player.vx)*0.6; }
+  if (player.x > BASE_W - player.r) { player.x = BASE_W - player.r; player.vx = -Math.abs(player.vx)*0.6; }
+
+  // Vertical physics
+  const ov = state.overrides;
+  if (ov) {
+    // Movement-override powerups
+    ov.t -= STEP;
+    if (ov.t <= 0) { state.overrides = null; }
+    else {
+      const mode = POWERUPS[ov.kind].mode;
+      if (mode==='balloon') { player.vy = -2.2; }
+      else if (mode==='antigrav') { player.vy = -1.5; }
+      else if (mode==='fireball') { player.vy = -9; }
+      else if (mode==='supernova') { player.vy = -13; }
+      else if (mode==='jetpack') { player.vy = -6; }
+    }
+  } else {
+    // Normal physics: gravity + base ascent
+    player.vy += GRAV;
+    if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+    // Base upward propulsion keeps the climb going
+    // (gravity dominates at apex, creating the falling window)
+  }
+
+  player.y += player.vy;
+
+  // Squash/stretch
+  if (player.squash > 0) player.squash -= STEP*4;
+
+  // Collisions
+  checkPlatforms();
+  checkCoins();
+  checkStars();
+  checkPowerups();
+  checkEnemies();
+  checkHazards();
+
+  // Magnet powerup: pull coins
+  if (state.powerups.magnet) {
+    for (let i=0;i<coins.length;i++) {
+      const c = coins[i];
+      if (c.taken) continue;
+      const dx = player.x - c.x, dy = player.y - c.y;
+      const d = Math.sqrt(dx*dx+dy*dy);
+      if (d < 120 && d > 0.1) { c.x += dx/d*3; c.y += dy/d*3; }
+    }
+  }
+
+  // Timed buffs
+  for (const k in state.powerups) {
+    if (state.powerups[k] > 0) state.powerups[k] -= STEP;
+    if (state.powerups[k] <= 0) delete state.powerups[k];
+  }
+
+  // Falling window
+  updateFalling();
+
+  // Combo timer
+  if (state.comboT > 0) {
+    state.comboT -= STEP;
+    if (state.comboT <= 0) { state.combo = 0; }
+  }
+
+  // Score from altitude
+  if (player.y < camY + viewH*0.4) {
+    const gain = Math.floor((camY + viewH*0.4 - player.y) / 10);
+    state.score += gain;
+  }
+
+  // Camera follows the player's highest point (Doodle Jump style)
+  const targetCam = player.y - viewH*0.45;
+  if (targetCam < camY) {
+    camY = targetCam;
+    if (camY < worldH) worldH = camY;
+  }
+
+  // World progression
+  const newWorld = worldOf(-camY);
+  if (newWorld !== state.world) {
+    state.world = newWorld;
+    updateHUD();
+    showToast(WORLDS[newWorld].name, WORLDS[newWorld].accent);
+  }
+
+  // Generate ahead (above the camera as the player climbs)
+  if (spawnY > camY - 200) generate(camY);
+
+  // Cull below
+  const cullY = camY + viewH + 300;
+  platforms = platforms.filter(p => !p.dead && p.y > camY - 200);
+  coins = coins.filter(c => !c.taken && c.y > camY - 200);
+  stars = stars.filter(s => !s.taken && s.y > camY - 200);
+  powerups = powerups.filter(p => !p.taken && p.y > camY - 200);
+  enemies = enemies.filter(e => e.alive && e.y > camY - 200);
+  hazards = hazards.filter(h => h.y > camY - 200);
+
+  // Particles
+  state.particles = state.particles.filter(p => (p.life -= STEP) > 0);
+  for (const p of state.particles) { p.x += p.vx; p.y += p.vy; p.vy += 0.1; }
+
+  // Death: fell off bottom
+  if (player.y > camY + viewH + 60) {
+    gameOver();
+    return;
+  }
+
+  // Screen shake decay
+  if (state.shake > 0) state.shake -= STEP*3;
+
+  updateHUD();
+}
+
+// ---------- HUD ----------
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const worldEl = document.getElementById('world');
+const pillsEl = document.getElementById('pills');
+const comboLabelEl = document.getElementById('comboLabel');
+function updateHUD() {
+  scoreEl.textContent = state.score;
+  bestEl.textContent = 'BEST '+state.best;
+  worldEl.textContent = WORLDS[state.world].name;
+  // Powerup pills
+  let html = '';
+  if (state.overrides) {
+    const d = POWERUPS[state.overrides.kind];
+    html += `<span class="pill" style="border-color:${d.color};color:${d.color}">${d.name} ${Math.ceil(state.overrides.t)}s</span>`;
+  }
+  for (const k in state.powerups) {
+    const d = POWERUPS[k];
+    html += `<span class="pill" style="border-color:${d.color};color:${d.color}">${d.name} ${Math.ceil(state.powerups[k])}s</span>`;
+  }
+  pillsEl.innerHTML = html;
+  comboLabelEl.textContent = state.combo > 1 ? 'COMBO x'+state.combo : '';
+}
+
+// ---------- Rendering ----------
+function drawBackground() {
+  const w = WORLDS[state.world];
+  const g = ctx.createLinearGradient(0,0,0,viewH);
+  g.addColorStop(0, w.sky[0]); g.addColorStop(1, w.sky[1]);
+  ctx.fillStyle = g; ctx.fillRect(0,0,viewW,viewH);
+
+  // Parallax layers
+  const layers = [
+    { cols: w.far, speed: 0.2, size: 26, type:'hill' },
+    { cols: w.mid, speed: 0.4, size: 20, type:'hill' },
+    { cols: w.near, speed: 0.7, size: 14, type:'hill' },
+  ];
+  for (const L of layers) {
+    const off = (camY * L.speed) % (L.size*2);
+    ctx.fillStyle = L.cols[0];
+    for (let x=-L.size; x<viewW+L.size; x+=L.size) {
+      const y = viewH - L.size + off;
+      ctx.beginPath();
+      ctx.arc(x, y, L.size, Math.PI, 0);
+      ctx.fill();
+    }
+    ctx.fillStyle = L.cols[1];
+    for (let x=-L.size/2; x<viewW+L.size; x+=L.size) {
+      const y = viewH - L.size*0.6 + off;
+      ctx.beginPath();
+      ctx.arc(x, y, L.size*0.6, Math.PI, 0);
+      ctx.fill();
+    }
+  }
+
+  // Stars in sky (world 0)
+  if (state.world===0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    for (let i=0;i<40;i++) {
+      const sx = (i*137.5) % viewW;
+      const sy = ((i*73.1) + camY*0.05) % viewH;
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+  }
+  // Clouds in world 3
+  if (state.world===3) {
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    for (let i=0;i<8;i++) {
+      const sx = (i*180 + 40) % viewW;
+      const sy = ((i*97 + camY*0.3) % viewH);
+      ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx+25, sy+8, 22, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+function drawPlatform(p) {
+  const w = WORLDS[state.world];
+  if (p.type==='break') {
+    ctx.fillStyle = '#a8b2c1';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#5c6b7a';
+    ctx.fillRect(p.x+2, p.y+2, p.w-4, p.h-4);
+    // crack
+    ctx.strokeStyle = '#3a4450'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(p.x+p.w/2, p.y); ctx.lineTo(p.x+p.w/2+3, p.y+p.h/2); ctx.lineTo(p.x+p.w/2-2, p.y+p.h); ctx.stroke();
+  } else if (p.type==='bounce') {
+    ctx.fillStyle = '#ff9f43';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#ffd166';
+    ctx.fillRect(p.x+2, p.y+2, p.w-4, p.h-4);
+    ctx.fillStyle = '#e67e22';
+    ctx.fillRect(p.x+p.w/2-8, p.y-4, 16, 4);
+  } else if (p.type==='conceal') {
+    ctx.fillStyle = '#8a5fc0';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#b08ad0';
+    ctx.fillRect(p.x+2, p.y+2, p.w-4, p.h-4);
+    if (p.hasCoin) {
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath(); ctx.arc(p.x+p.w/2, p.y+p.h/2, 5, 0, Math.PI*2); ctx.fill();
+    }
+  } else {
+    ctx.fillStyle = w.accent;
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillRect(p.x+2, p.y+2, p.w-4, 4);
+  }
+}
+
+function drawCoin(c) {
+  const pulse = 1 + Math.sin(state.t*6 + c.y*0.1)*0.15;
+  ctx.fillStyle = '#ffd166';
+  ctx.beginPath(); ctx.arc(c.x, c.y, c.r*pulse, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff3c4';
+  ctx.beginPath(); ctx.arc(c.x, c.y, c.r*0.5*pulse, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#e6a817';
+  ctx.fillRect(c.x-1, c.y-c.r*pulse, 2, c.r*2*pulse);
+}
+
+function drawStar(s) {
+  const pulse = 1 + Math.sin(state.t*5 + s.y*0.1)*0.1;
+  ctx.save();
+  ctx.translate(s.x, s.y); ctx.scale(pulse,pulse);
+  ctx.fillStyle = '#ff9f43';
+  ctx.beginPath();
+  for (let i=0;i<5;i++) {
+    const a = -Math.PI/2 + i*2*Math.PI/5;
+    const a2 = a + Math.PI/5;
+    ctx.lineTo(Math.cos(a)*s.r, Math.sin(a)*s.r);
+    ctx.lineTo(Math.cos(a2)*s.r*0.45, Math.sin(a2)*s.r*0.45);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawPowerup(p) {
+  const d = POWERUPS[p.kind];
+  const pulse = 1 + Math.sin(state.t*4 + p.y*0.1)*0.12;
+  ctx.fillStyle = d.color;
+  ctx.beginPath(); ctx.arc(p.x, p.y, p.r*pulse, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.arc(p.x, p.y, p.r*0.5*pulse, 0, Math.PI*2); ctx.fill();
+  // icon letter
+  ctx.fillStyle = '#0b0e1a';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(d.name[0], p.x, p.y+1);
+}
+
+function drawEnemy(e) {
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  if (e.type==='monster') {
+    ctx.fillStyle = '#e63946';
+    ctx.beginPath(); ctx.arc(0,0,e.r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-4,-3,4,0,Math.PI*2); ctx.arc(4,-3,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(-4,-3,2,0,Math.PI*2); ctx.arc(4,-3,2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(0,3,3,0,Math.PI); ctx.fill();
+  } else if (e.type==='anvil') {
+    ctx.fillStyle = '#5c6b7a';
+    ctx.fillRect(-e.r, -e.r*0.5, e.r*2, e.r);
+    ctx.fillRect(-e.r*0.6, -e.r*1.2, e.r*1.2, e.r*0.7);
+  } else if (e.type==='ballchain') {
+    ctx.strokeStyle = '#8a5fc0'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0,-e.r*2); ctx.lineTo(0,0); ctx.stroke();
+    ctx.fillStyle = '#5c6b7a';
+    ctx.beginPath(); ctx.arc(0,0,e.r*0.7,0,Math.PI*2); ctx.fill();
+  } else if (e.type==='lightning') {
+    ctx.fillStyle = '#ffd166';
+    ctx.beginPath();
+    ctx.moveTo(0,-e.r); ctx.lineTo(e.r*0.5,0); ctx.lineTo(0,0); ctx.lineTo(-e.r*0.5,e.r);
+    ctx.lineTo(0,e.r*0.3); ctx.lineTo(e.r*0.3,-e.r*0.3); ctx.lineTo(0,-e.r);
+    ctx.closePath(); ctx.fill();
+  } else if (e.type==='potion') {
+    ctx.fillStyle = '#c8b6ff';
+    ctx.beginPath(); ctx.arc(0,0,e.r*0.8,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#8e7cc3';
+    ctx.fillRect(-e.r*0.3, -e.r*1.4, e.r*0.6, e.r*0.6);
+  }
+  ctx.restore();
+}
+
+function drawHazard(h) {
+  ctx.fillStyle = '#ff6b6b';
+  ctx.beginPath();
+  for (let i=0;i<4;i++) {
+    const a = i*Math.PI/2 + Math.PI/4;
+    ctx.lineTo(Math.cos(a)*h.r, Math.sin(a)*h.r);
+    ctx.lineTo(Math.cos(a+Math.PI/4)*h.r*0.4, Math.sin(a+Math.PI/4)*h.r*0.4);
+  }
+  ctx.closePath(); ctx.fill();
+}
+
+function drawHero() {
+  const h = hero();
+  const r = player.r * h.size;
+  const squash = player.squash;
+  const sy = squash > 0 ? 1 - squash*0.3 : 1;
+  const sx = squash > 0 ? 1 + squash*0.3 : 1;
+
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  ctx.scale(sx, sy);
+
+  // Shield aura
+  if (state.powerups.shield) {
+    ctx.strokeStyle = 'rgba(123,241,168,'+(0.5+Math.sin(state.t*6)*0.2)+')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0,0,r+6,0,Math.PI*2); ctx.stroke();
+  }
+  // Fireball glow
+  if (state.overrides && POWERUPS[state.overrides.kind].mode==='fireball') {
+    ctx.shadowColor = '#ff6b6b'; ctx.shadowBlur = 20;
+  }
+  if (state.overrides && POWERUPS[state.overrides.kind].mode==='supernova') {
+    ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 30;
+  }
+
+  // Body
+  ctx.fillStyle = h.c[0];
+  ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
+  // Belly
+  ctx.fillStyle = h.c[2];
+  ctx.beginPath(); ctx.arc(0, r*0.3, r*0.6, 0, Math.PI*2); ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-r*0.35, -r*0.2, r*0.28, 0, Math.PI*2); ctx.arc(r*0.35, -r*0.2, r*0.28, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#0b0e1a';
+  ctx.beginPath(); ctx.arc(-r*0.3, -r*0.2, r*0.13, 0, Math.PI*2); ctx.arc(r*0.4, -r*0.2, r*0.13, 0, Math.PI*2); ctx.fill();
+  // Mouth
+  ctx.strokeStyle = h.c[1]; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, r*0.15, r*0.4, 0.2, Math.PI-0.2); ctx.stroke();
+  // Limbs
+  ctx.strokeStyle = h.c[1]; ctx.lineWidth = 3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-r*0.6, r*0.5); ctx.lineTo(-r*0.9, r*0.9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(r*0.6, r*0.5); ctx.lineTo(r*0.9, r*0.9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-r*0.5, -r*0.6); ctx.lineTo(-r*0.8, -r*1.0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(r*0.5, -r*0.6); ctx.lineTo(r*0.8, -r*1.0); ctx.stroke();
+
+  ctx.restore();
+  ctx.shadowBlur = 0;
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    ctx.globalAlpha = Math.max(0, p.life/p.max);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  ctx.clearRect(0,0,viewW,viewH);
+  ctx.save();
+  if (state.shake > 0) {
+    ctx.translate((Math.random()-0.5)*state.shake*4, (Math.random()-0.5)*state.shake*4);
+  }
+
+  drawBackground();
+
+  // World-space to screen
+  const sy = (wy) => wy - camY;
+
+  // Platforms
+  for (const p of platforms) { drawPlatform({...p, y: sy(p.y)}); }
+  // Hazards
+  for (const h of hazards) { drawHazard({...h, y: sy(h.y)}); }
+  // Enemies
+  for (const e of enemies) { drawEnemy({...e, y: sy(e.y)}); }
+  // Coins
+  for (const c of coins) { drawCoin({...c, y: sy(c.y)}); }
+  // Stars
+  for (const s of stars) { drawStar({...s, y: sy(s.y)}); }
+  // Powerups
+  for (const p of powerups) { drawPowerup({...p, y: sy(p.y)}); }
+
+  // Player
+  const py = sy(player.y);
+  if (py > -50 && py < viewH+50) {
+    ctx.save();
+    ctx.translate(0, py - player.y);
+    drawHero();
+    ctx.restore();
+  }
+
+  drawParticles();
+
+  ctx.restore();
+}
+
+// ---------- Hero select UI ----------
+function buildHeroSelect() {
+  const row = document.getElementById('heroRow');
+  row.innerHTML = '';
+  HEROES.forEach((h, i) => {
+    const card = document.createElement('div');
+    card.className = 'hero-card' + (i===state.hero?' sel':'');
+    card.innerHTML = `<div class="nm">${h.name}</div><div class="ds">${h.desc}</div>`;
+    // mini preview
+    const cv = document.createElement('canvas');
+    cv.width = 60; cv.height = 60;
+    const c = cv.getContext('2d');
+    c.fillStyle = h.c[0];
+    c.beginPath(); c.arc(30,32,20,0,Math.PI*2); c.fill();
+    c.fillStyle = h.c[2];
+    c.beginPath(); c.arc(30,40,12,0,Math.PI*2); c.fill();
+    c.fillStyle = '#fff';
+    c.beginPath(); c.arc(24,26,6,0,Math.PI*2); c.arc(36,26,6,0,Math.PI*2); c.fill();
+    c.fillStyle = '#0b0e1a';
+    c.beginPath(); c.arc(25,26,3,0,Math.PI*2); c.arc(37,26,3,0,Math.PI*2); c.fill();
+    card.prepend(cv);
+    card.addEventListener('click', () => {
+      state.hero = i;
+      buildHeroSelect();
+    });
+    row.appendChild(card);
+  });
+}
+
+// ---------- Init ----------
+function init() {
+  // Load best + hero
+  try {
+    state.best = parseInt(localStorage.getItem('jump_best')||'0', 10) || 0;
+    state.hero = parseInt(localStorage.getItem('jump_hero')||'0', 10) || 0;
+  } catch(e){}
+  buildHeroSelect();
+  updateHUD();
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('retryBtn').addEventListener('click', startGame);
+  document.getElementById('menuBtn').addEventListener('click', () => {
+    document.getElementById('over').classList.add('hidden');
+    document.getElementById('menu').classList.remove('hidden');
+    state.mode='menu';
+    buildHeroSelect();
+  });
+  document.getElementById('muteBtn').addEventListener('click', () => {
+    state.muted = !state.muted;
+    document.getElementById('muteBtn').textContent = state.muted ? '🔇' : '🔊';
+    if (state.muted) stopMusic();
+    else if (state.mode==='play') startMusic();
+  });
+
+  // Enable accelerometer on first interaction (iOS permission)
+  document.addEventListener('touchstart', () => enableAccel(), { once:true });
+  document.addEventListener('click', () => enableAccel(), { once:true });
+
+  // Main loop
+  function loop(now) {
+    acc += (now - last) / 1000;
+    last = now;
+    let steps = 0;
+    while (acc >= STEP && steps < 3) {  // max 3 steps/frame clamp
+      update();
+      acc -= STEP;
+      steps++;
+    }
+    if (acc > STEP*3) acc = 0; // drop excess, no spiral of death
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+init();
+
+// Debug hook for headless verification
+window.__jump = {
+  get mode(){ return state.mode; },
+  get score(){ return state.score; },
+  get best(){ return state.best; },
+  get hero(){ return state.hero; },
+  get playerY(){ return player.y; },
+  get camY(){ return camY; },
+  get platforms(){ return platforms.length; },
+  get coins(){ return coins.length; },
+  get world(){ return state.world; },
+  start(){ startGame(); },
+  step(){ update(); },
+  setHero(i){ state.hero=i; },
+};
+
+})();
+</script>
+</body>
+</html>
