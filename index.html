@@ -146,13 +146,21 @@ document.addEventListener('keyup', e => {
   if (e.key==='ArrowRight'||e.key==='d'||e.key==='D') IN.right=false;
 });
 
-// Touch-drag steering (default mobile control)
+function tapJump() {
+  if (state.mode !== 'play') return;
+  player.vy = -(BASE_UP * hero().jump);
+  player.squash = 1;
+  sfxJump();
+}
+
+// Touch-drag steering and tap-to-jump (default mobile control)
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   const t = e.changedTouches[0];
   IN.touchX = t.clientX; IN.touchActive = true;
   if (state.mode==='menu') startGame();
   if (state.mode==='over') startGame();
+  else tapJump();
 }, {passive:false});
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
@@ -164,7 +172,11 @@ canvas.addEventListener('touchcancel', e => { IN.touchActive=false; IN.touchX=nu
 
 // Mouse drag (desktop fallback)
 let mouseDown=false;
-canvas.addEventListener('mousedown', e => { mouseDown=true; IN.touchX=e.clientX; IN.touchActive=true; if(state.mode==='menu'||state.mode==='over') startGame(); });
+canvas.addEventListener('mousedown', e => {
+  mouseDown=true; IN.touchX=e.clientX; IN.touchActive=true;
+  if (state.mode==='menu'||state.mode==='over') startGame();
+  else tapJump();
+});
 window.addEventListener('mousemove', e => { if(mouseDown){ IN.touchX=e.clientX; } });
 window.addEventListener('mouseup', () => { mouseDown=false; IN.touchActive=false; IN.touchX=null; });
 
@@ -222,7 +234,7 @@ const BASE_UP = 11.0;              // bounce ascent velocity (~121 unit jump, ~2
 const MAX_FALL = 12;               // max fall speed
 const STEER_ACC = 0.4;             // horizontal accel
 const MAX_VX = 3.5;                // max horizontal speed (~115 unit reach, covers maxOff 30)
-const MAX_ACTIVE_PLATFORMS = 6;
+const MAX_ACTIVE_PLATFORMS = 8;
 const PLAYER_R = 13;               // base radius
 
 const player = { x:0, y:0, vx:0, vy:0, r:PLAYER_R, alive:true, squash:0 };
@@ -359,7 +371,7 @@ function spawnPlatform(y, prevX) {
   // Place within reach of the previous platform (limited horizontal offset)
   let x;
   if (prevX != null) {
-    const maxOff = 90; // enough movement to avoid vertical platform stacks
+    const maxOff = 50; // varied without exceeding the player's steering reach
     x = Math.max(20, Math.min(BASE_W - w - 20, prevX + (Math.random()*2-1)*maxOff));
   } else {
     x = 30 + Math.random() * (BASE_W - w - 60);
@@ -400,13 +412,15 @@ function generate(y) {
   // Platforms — chained so each is within reach of the previous (Doodle Jump style).
   // The player climbs UPWARD (decreasing y), so platforms are generated ABOVE
   // the current camera top (smaller y), ahead of the climb.
-  const platGap = 98 + Math.random()*14;   // 98-112: a deliberate, sparse route
+  const platGap = 72 + Math.random()*12;   // 72-84: sparse, but safely reachable
   let prevCenter = null;
+  let nextSpawnY = spawnY;
   // Generate from the current top of the world upward (decreasing y)
   for (let yy = spawnY; yy > y - 160 && platforms.length < MAX_ACTIVE_PLATFORMS; yy -= platGap) {
     prevCenter = spawnPlatform(yy, prevCenter);
+    nextSpawnY = yy - platGap;
     // Coins trail on some platforms — fewer, shorter trails
-    if (Math.random() < 0.4) spawnCoinTrail(yy - 20, 30+Math.random()*(BASE_W-60), 2+Math.floor(Math.random()*2), Math.random()<0.5?1:-1);
+    if (Math.random() < 0.18) spawnCoinTrail(yy - 20, 30+Math.random()*(BASE_W-60), 1, Math.random()<0.5?1:-1);
     // Stars occasionally
     if (Math.random() < 0.07) spawnStar(yy - 40);
     // Powerups occasionally
@@ -416,7 +430,7 @@ function generate(y) {
     if (Math.random() < 0.03 + w*0.02) spawnEnemy(yy - 30);
     if (Math.random() < 0.015 + w*0.015) spawnHazard(yy - 20);
   }
-  spawnY = y - 160;   // next generation starts above the current top
+  spawnY = nextSpawnY; // only advance when a platform was actually created
 }
 
 // ---------- Falling window ----------
@@ -645,8 +659,8 @@ function resetGame() {
   const spawnY0 = viewH * 0.7;
   player.x = BASE_W/2; player.y = spawnY0; player.vx=0; player.vy=0; player.alive=true; player.squash=0;
   // Initial platforms — a few below the player to start, then generate upward
-  for (let i=0;i<2;i++) spawnPlatform(spawnY0 + i*105);
-  spawnY = spawnY0 - 105;
+  for (let i=0;i<2;i++) spawnPlatform(spawnY0 + i*78);
+  spawnY = spawnY0 - 78;
   generate(0);
   state.world = 0;
   startMusic();
@@ -791,9 +805,6 @@ function update() {
     showToast(WORLDS[newWorld].name, WORLDS[newWorld].accent);
   }
 
-  // Generate ahead (above the camera as the player climbs)
-  if (spawnY > camY - 160) generate(camY);
-
   // Cull below (world y decreases upward, so "below" means y past the camera's bottom edge)
   const cullY = camY + viewH + 300;
   platforms = platforms.filter(p => !p.dead && p.y < cullY);
@@ -802,6 +813,10 @@ function update() {
   powerups = powerups.filter(p => !p.taken && p.y < cullY);
   enemies = enemies.filter(e => e.alive && e.y < cullY);
   hazards = hazards.filter(h => h.y < cullY);
+
+  // Generate only after old platforms are removed, so the active-platform
+  // budget cannot create a gap in the upward route.
+  if (spawnY > camY - 160) generate(camY);
 
   // Particles
   state.particles = state.particles.filter(p => (p.life -= STEP) > 0);
